@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-DATA CLEANING & FIXING SCRIPT - ICU (MIMIC-IV) Dataset
+DATA CLEANING & FIXING SCRIPT - ICU (MIMIC-IV) Dataset  [V2 - WITH NEW FEATURES]
 Applies all fixes identified in the data audit
+Now handles 28 columns including: icu_los_days, hosp_los_days,
+charlson_comorbidity_index, sofa_score, hypertension, diabetes, copd, heart_failure
 =============================================================================
 """
 
@@ -18,7 +20,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # -- paths -----------------------------------------------------------------
-DATA_PATH = r"e:\fbi ML\fbi_data_local.csv"
+DATA_PATH = r"e:\fbi ML\updated.csv"
 OUT_DIR   = r"e:\fbi ML\fix_outputs"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -28,8 +30,9 @@ print("ORIGINAL dataset: {} rows x {} columns".format(df.shape[0], df.shape[1]))
 
 id_cols      = ['subject_id', 'hadm_id', 'stay_id']
 label_cols   = ['weaning_success', 'readmission']
+binary_flags = ['hypertension', 'diabetes', 'copd', 'heart_failure']
 feature_cols = [c for c in df.columns if c not in id_cols + label_cols]
-numeric_features = [c for c in feature_cols if c != 'gender']
+numeric_features = [c for c in feature_cols if c not in ['gender'] + binary_flags]
 
 
 # =========================================================================
@@ -71,6 +74,16 @@ df_dedup = df.groupby('stay_id', as_index=False).agg({
     'ph': 'first',
     'lactate': 'first',
     'creatinine': 'first',
+    # NEW FEATURES
+    'icu_los_days': 'first',
+    'hosp_los_days': 'first',
+    'charlson_comorbidity_index': 'first',
+    'sofa_score': 'first',
+    'hypertension': 'first',
+    'diabetes': 'first',
+    'copd': 'first',
+    'heart_failure': 'first',
+    # LABELS (majority vote)
     'weaning_success': majority_vote,
     'readmission': majority_vote,
 })
@@ -105,6 +118,11 @@ impossible_bounds = {
     'paco2':         (0, 250),      # extreme hypercapnia
     'lactate':       (0, 30),       # extreme lactic acidosis
     'creatinine':    (0, 30),       # extreme renal failure
+    # NEW FEATURES
+    'icu_los_days':               (0, 365),   # max 1 year
+    'hosp_los_days':              (0, 730),   # max 2 years
+    'charlson_comorbidity_index': (0, 37),    # max possible CCI
+    'sofa_score':                 (0, 24),    # max SOFA is 24
 }
 
 # Replace impossible values with NaN (they are clearly data errors)
@@ -132,6 +150,11 @@ clinical_caps = {
     'paco2':         (10, 150),
     'lactate':       (0.1, 25),
     'creatinine':    (0.1, 25),
+    # NEW FEATURES
+    'icu_los_days':               (0, 200),
+    'hosp_los_days':              (0, 365),
+    'charlson_comorbidity_index': (0, 20),
+    'sofa_score':                 (0, 24),
 }
 
 print("\nApplying clinical Winsorisation (capping at realistic bounds):")
@@ -160,7 +183,7 @@ for col in numeric_features:
     if n_miss > 0:
         print("  {}: {} ({:.2f}%)".format(col, n_miss, n_miss / len(df) * 100))
 
-# Strategy: Median imputation (all columns have <5% missing)
+# Strategy: Median imputation (all columns have <9% missing)
 # Median is robust to outliers and appropriate for clinical data
 for col in numeric_features:
     n_miss = df[col].isnull().sum()
@@ -169,8 +192,16 @@ for col in numeric_features:
         df[col].fillna(median_val, inplace=True)
         print("  -> {} imputed with median = {:.4f}".format(col, median_val))
 
+# Fill binary ICD flags with 0 (NaN means no diagnosis = 0)
+for col in binary_flags:
+    n_miss = df[col].isnull().sum()
+    if n_miss > 0:
+        df[col] = df[col].fillna(0).astype(int)
+        print("  -> {} filled {} NaNs with 0".format(col, n_miss))
+
 # Verify no missing values remain
-total_missing = df[numeric_features].isnull().sum().sum()
+all_feat_cols = numeric_features + binary_flags
+total_missing = df[all_feat_cols].isnull().sum().sum()
 print("\nTotal missing after imputation: {}".format(total_missing))
 
 
@@ -207,7 +238,7 @@ for col in numeric_features:
         print("  {}: skew = {:.3f}".format(col, sk))
 
 # Apply log1p transform for positively skewed features
-log_transform_cols = ['lactate', 'creatinine']
+log_transform_cols = ['lactate', 'creatinine', 'icu_los_days', 'hosp_los_days']
 for col in log_transform_cols:
     if col in df.columns:
         df[col + '_log'] = np.log1p(df[col])
@@ -292,7 +323,11 @@ print("  FIX 8: FEATURE SCALING")
 print("=" * 70)
 
 # Define final feature columns for modeling
-model_features = numeric_features + ['gender_encoded']
+model_features = numeric_features + binary_flags + ['gender_encoded']
+# Add log-transformed columns
+for col in ['lactate_log', 'creatinine_log', 'icu_los_days_log', 'hosp_los_days_log']:
+    if col in df.columns and col not in model_features:
+        model_features.append(col)
 
 # Fit scaler on TRAINING data only, transform both
 scaler = StandardScaler()
@@ -352,7 +387,7 @@ print("\n  1. Feature-duplicate rows: {} ({:.1f}%)".format(
     n_dup, n_dup / len(df) * 100))
 
 # 2. No missing values
-n_miss = df[numeric_features].isnull().sum().sum()
+n_miss = df[all_feat_cols].isnull().sum().sum()
 print("  2. Total missing values: {}".format(n_miss))
 
 # 3. Clinical range check
@@ -378,6 +413,12 @@ print("  5. Train-test patient overlap: {} [OK]".format(len(overlap)))
 # 6. Dataset size
 print("  6. Final dataset size: {} rows x {} columns".format(df.shape[0], df.shape[1]))
 
+# 7. New features summary
+print("  7. New features summary:")
+for col in ['icu_los_days', 'hosp_los_days', 'charlson_comorbidity_index', 'sofa_score'] + binary_flags:
+    print("     {}: mean={:.3f}, min={}, max={}".format(
+        col, df[col].mean(), df[col].min(), df[col].max()))
+
 print("\n" + "=" * 70)
 print("  CLEANING COMPLETE!")
 print("=" * 70)
@@ -392,10 +433,11 @@ print("\nGenerating before/after comparison plots...")
 df_orig = pd.read_csv(DATA_PATH)
 
 # Plot: Distribution comparison for key features
-fig, axes = plt.subplots(3, 4, figsize=(18, 12))
+fig, axes = plt.subplots(4, 4, figsize=(20, 16))
 axes = axes.flatten()
 plot_cols = ['heart_rate', 'resp_rate', 'spo2', 'sys_bp', 'dia_bp', 'fio2',
-             'peep', 'tidal_volume', 'pao2', 'paco2', 'lactate', 'creatinine']
+             'peep', 'tidal_volume', 'pao2', 'paco2', 'lactate', 'creatinine',
+             'icu_los_days', 'hosp_los_days', 'charlson_comorbidity_index', 'sofa_score']
 
 for i, col in enumerate(plot_cols):
     ax = axes[i]
@@ -431,3 +473,5 @@ print("  Missing values: {} -> {}".format(
     df_orig[numeric_features].isnull().sum().sum(), n_miss))
 print("  Duplicate features: {:,} -> {:,}".format(
     df_orig.drop(columns=label_cols).duplicated().sum(), n_dup))
+print("  Total columns: {} (including {} new features + {} log transforms)".format(
+    len(df.columns), 8, 4))
