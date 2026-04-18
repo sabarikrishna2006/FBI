@@ -1,0 +1,295 @@
+
+================================================================================
+  STEP 1 - STRUCTURAL VALIDATION
+================================================================================
+Shape: (109868, 20)
+
+Column data-types:
+  subject_id                 int64       (unique=29182)
+  hadm_id                    int64       (unique=32583)
+  stay_id                    int64       (unique=34146)
+  age                        int64       (unique=73)
+  gender                     object      (unique=2)
+  heart_rate                 float64     (unique=29425)
+  resp_rate                  float64     (unique=23981)
+  spo2                       float64     (unique=20686)
+  sys_bp                     float64     (unique=22721)
+  dia_bp                     float64     (unique=21501)
+  fio2                       float64     (unique=8222)
+  peep                       float64     (unique=6018)
+  tidal_volume               float64     (unique=18457)
+  pao2                       float64     (unique=15080)
+  paco2                      float64     (unique=7229)
+  ph                         float64     (unique=6974)
+  lactate                    float64     (unique=6019)
+  creatinine                 float64     (unique=9172)
+  weaning_success            int64       (unique=2)
+  readmission                int64       (unique=2)
+
+Object/string columns: ['gender']
+[OK] Only 'gender' is non-numeric -- expected.
+
+Gender value counts:
+gender
+M    68459
+F    41409
+
+Exact duplicate rows: 70789  (64.4%)
+Rows with duplicate features (ignoring labels): 75722  (68.9%)
+[WARNING] Many rows share identical feature values but differ only in labels (weaning_success / readmission). This suggests the dataset was artificially expanded -- perhaps one row per ventilator-event epoch. This MUST be investigated before training to avoid data leakage from the same patient-stay appearing in both train and test sets.
+
+================================================================================
+  STEP 2 - MISSING VALUES ANALYSIS
+================================================================================
+                 missing_count  missing_pct
+lactate                   4707         4.28
+paco2                     2684         2.44
+pao2                      2684         2.44
+ph                        2511         2.29
+dia_bp                    1212         1.10
+sys_bp                    1209         1.10
+creatinine                 376         0.34
+tidal_volume               115         0.10
+fio2                        19         0.02
+peep                        22         0.02
+spo2                        18         0.02
+resp_rate                   13         0.01
+age                          0         0.00
+heart_rate                   0         0.00
+gender                       0         0.00
+weaning_success              0         0.00
+readmission                  0         0.00
+
+[OK] No column exceeds 30% missing data.
+
+Imputation suggestions:
+  lactate (4.3%): median imputation (low missingness)
+  paco2 (2.4%): median imputation (low missingness)
+  pao2 (2.4%): median imputation (low missingness)
+  ph (2.3%): median imputation (low missingness)
+  dia_bp (1.1%): median imputation (low missingness)
+  sys_bp (1.1%): median imputation (low missingness)
+  creatinine (0.3%): median imputation (low missingness)
+  tidal_volume (0.1%): median imputation (low missingness)
+  fio2 (0.0%): median imputation (low missingness)
+  peep (0.0%): median imputation (low missingness)
+  spo2 (0.0%): median imputation (low missingness)
+  resp_rate (0.0%): median imputation (low missingness)
+  -> Plot saved: step2_missing_values.png
+
+================================================================================
+  STEP 3 - CLINICAL RANGE VALIDATION
+================================================================================
+
+[WARNING] Out-of-range values found:
+
+  pao2             expected [50, 300]  actual [15.0, 587.0]  violations=6320 (5.90%)  (below=4999, above=1321)
+  paco2            expected [30, 70]  actual [16.0, 228.5]  violations=3922 (3.66%)  (below=1462, above=2460)
+  creatinine       expected [0.3, 15]  actual [0.0, 26.5727]  violations=862 (0.79%)  (below=851, above=11)
+  ph               expected [7.2, 7.6]  actual [6.49, 7.69]  violations=746 (0.69%)  (below=744, above=2)
+  lactate          expected [0.5, 10]  actual [0.2, 26.66]  violations=491 (0.47%)  (below=13, above=478)
+  spo2             expected [80, 100]  actual [24.0, 81914.6694]  violations=479 (0.44%)  (below=111, above=368)
+  tidal_volume     expected [200, 800]  actual [0.0, 89125.0]  violations=487 (0.44%)  (below=307, above=180)
+  dia_bp           expected [20, 120]  actual [0.0, 6447.7692]  violations=330 (0.30%)  (below=5, above=325)
+  sys_bp           expected [80, 200]  actual [0.0, 4826.2582]  violations=206 (0.19%)  (below=162, above=44)
+  fio2             expected [21, 100]  actual [10.3, 261.8182]  violations=123 (0.11%)  (below=18, above=105)
+  heart_rate       expected [40, 180]  actual [0.0, 103185.1649]  violations=77 (0.07%)  (below=4, above=73)
+  resp_rate        expected [10, 40]  actual [0.0, 29557.3291]  violations=58 (0.05%)  (below=13, above=45)
+  peep             expected [0, 20]  actual [0.0, 75650.6724]  violations=57 (0.05%)  (below=0, above=57)
+
+FiO2 sanity: 0 values <= 1.0 out of 109849 -> consistent scale
+
+[CLINICAL] pH outliers are clinically critical -- values outside 7.2-7.6 suggest severe acidosis/alkalosis. Verify they are real readings.
+
+================================================================================
+  STEP 4 - OUTLIER DETECTION (IQR Method)
+================================================================================
+
+Columns with IQR outliers (14/14):
+
+  pao2             outliers=  7766  ( 7.25%)  bounds=[10.51, 203.43]  actual=[15.00, 587.00]
+  lactate          outliers=  6519  ( 6.20%)  bounds=[-0.31, 3.75]  actual=[0.20, 26.66]
+  creatinine       outliers=  4734  ( 4.32%)  bounds=[-1.25, 4.00]  actual=[0.00, 26.57]
+  peep             outliers=  4444  ( 4.05%)  bounds=[1.30, 11.16]  actual=[0.00, 75650.67]
+  paco2            outliers=  4146  ( 3.87%)  bounds=[21.89, 66.92]  actual=[16.00, 228.50]
+  fio2             outliers=  4143  ( 3.77%)  bounds=[23.85, 68.65]  actual=[10.30, 261.82]
+  spo2             outliers=  2939  ( 2.68%)  bounds=[93.52, 101.19]  actual=[24.00, 81914.67]
+  tidal_volume     outliers=  1853  ( 1.69%)  bounds=[199.80, 666.10]  actual=[0.00, 89125.00]
+  ph               outliers=  1516  ( 1.41%)  bounds=[7.24, 7.53]  actual=[6.49, 7.69]
+  dia_bp           outliers=  1122  ( 1.03%)  bounds=[36.75, 92.22]  actual=[0.00, 6447.77]
+  resp_rate        outliers=   945  ( 0.86%)  bounds=[11.54, 30.63]  actual=[0.00, 29557.33]
+  heart_rate       outliers=   710  ( 0.65%)  bounds=[53.43, 120.36]  actual=[0.00, 103185.16]
+  sys_bp           outliers=   698  ( 0.64%)  bounds=[79.04, 157.09]  actual=[0.00, 4826.26]
+  age              outliers=    51  ( 0.05%)  bounds=[19.00, 107.00]  actual=[18.00, 91.00]
+
+Recommendations:
+  * For clinically meaningful outliers (e.g., lactate=16, pH=6.98): keep but consider Winsorisation.
+  * For impossible values (e.g., dia_bp=137): cap at clinical max or investigate data entry errors.
+  * For tidal_volume > 800 (e.g., 860 mL): plausible in large patients -- use clinical judgment.
+  -> Plot saved: step4_outlier_boxplots.png
+
+================================================================================
+  STEP 5 - CLASS IMBALANCE CHECK
+================================================================================
+
+weaning_success:
+weaning_success
+1    55776
+0    54092
+  Minority ratio: 0.970
+  [OK] Acceptable balance.
+
+readmission:
+readmission
+0    96736
+1    13132
+  Minority ratio: 0.136
+  [MODERATE] Moderate imbalance. Consider oversampling or class weights.
+  -> Plot saved: step5_class_imbalance.png
+
+================================================================================
+  STEP 6 - FEATURE DISTRIBUTION ANALYSIS
+================================================================================
+
+Skewness (|skew| > 1 = highly skewed):
+
+      age              skew= -0.480
+  [!] heart_rate       skew=265.524
+  [!] resp_rate        skew=153.331
+  [!] spo2             skew=100.804
+  [!] sys_bp           skew= 61.452
+  [!] dia_bp           skew=107.751
+  [!] fio2             skew=  3.248
+  [!] peep             skew= 63.728
+  [!] tidal_volume     skew=162.339
+  [!] pao2             skew=  1.868
+  [!] paco2            skew=  1.375
+  [!] ph               skew= -1.012
+  [!] lactate          skew=  4.782
+  [!] creatinine       skew=  2.199
+
+[SUGGEST] Columns needing normalisation/log-transform: ['heart_rate', 'resp_rate', 'spo2', 'sys_bp', 'dia_bp', 'fio2', 'peep', 'tidal_volume', 'pao2', 'paco2', 'ph', 'lactate', 'creatinine']
+  -> Plot saved: step6_distributions.png
+
+================================================================================
+  STEP 7 - CORRELATION & LEAKAGE DETECTION
+================================================================================
+
+Highly correlated feature pairs (|r| > 0.9):
+
+  [OK] No feature pairs exceed |r| > 0.9.
+
+Moderately correlated feature pairs (0.7 < |r| <= 0.9):
+
+  sys_bp          <-> peep             r = 0.7410
+
+Feature-Label correlations:
+
+  weaning_success:
+    age              r =  0.0042
+    heart_rate       r = -0.0004
+    resp_rate        r = -0.0036
+    spo2             r = -0.0005
+    sys_bp           r = -0.0205
+    dia_bp           r = -0.0088
+    fio2             r =  0.1433
+    peep             r = -0.0093
+    tidal_volume     r =  0.0468
+    pao2             r =  0.2888
+    paco2            r = -0.2161
+    ph               r =  0.0060
+    lactate          r =  0.1178
+    creatinine       r = -0.0793
+
+  readmission:
+    age              r =  0.0165
+    heart_rate       r = -0.0005
+    resp_rate        r = -0.0019
+    spo2             r =  0.0185
+    sys_bp           r = -0.0163
+    dia_bp           r =  0.0013
+    fio2             r = -0.0347
+    peep             r = -0.0022
+    tidal_volume     r = -0.0002
+    pao2             r = -0.0414
+    paco2            r = -0.0065
+    ph               r =  0.0467
+    lactate          r = -0.0148
+    creatinine       r =  0.0097
+
+[CRITICAL] Cross-checking for data leakage patterns:
+  Duplicate feature rows with different labels detected in Step 1.
+  This is a strong leakage signal -- the same patient-observation
+  appears multiple times with different outcomes.
+  -> Plot saved: step7_correlation_heatmap.png
+
+================================================================================
+  STEP 8 - BIAS DETECTION
+================================================================================
+
+Gender distribution:
+gender
+M    68459
+F    41409
+  Gender ratio (min/max): 0.605
+  [OK] Gender distribution acceptable.
+
+Gender vs weaning_success:
+weaning_success       0       1
+gender                         
+F                0.4779  0.5221
+M                0.5011  0.4989
+
+Gender vs readmission:
+readmission       0       1
+gender                     
+F            0.9034  0.0966
+M            0.8666  0.1334
+
+  Chi-sq test (gender x weaning_success): chi2=55.39, p=9.9008e-14, dof=1
+  [WARNING] Statistically significant association (p<0.05). Potential gender bias.
+
+  Chi-sq test (gender x readmission): chi2=332.31, p=3.0166e-74, dof=1
+  [WARNING] Statistically significant association (p<0.05). Potential gender bias.
+
+Age distribution by label:
+  weaning_success=0: mean age=62.5, std=15.6
+  weaning_success=1: mean age=62.6, std=15.7
+  t-test: t=-1.39, p=1.6329e-01
+  [OK] No significant age bias for weaning_success.
+  readmission=0: mean age=62.5, std=15.8
+  readmission=1: mean age=63.3, std=14.5
+  t-test: t=-5.48, p=4.1921e-08
+  [WARNING] Significant age difference between readmission groups.
+  -> Plot saved: step8_age_bias.png
+  -> Plot saved: step8_gender_bias.png
+
+================================================================================
+  STEP 9 - FINAL VERDICT
+================================================================================
+
+------------------------------------------------------------
+ISSUES IDENTIFIED:
+------------------------------------------------------------
+  [CRITICAL] Massive duplicate rows with different labels -- likely data leakage / artificial expansion.
+  [MINOR] Columns with some missing values: ['lactate', 'paco2', 'pao2', 'ph', 'dia_bp', 'sys_bp', 'creatinine', 'tidal_volume', 'fio2', 'peep', 'spo2', 'resp_rate'] -> need imputation before training.
+  [MODERATE] Out-of-clinical-range values in: ['heart_rate', 'resp_rate', 'spo2', 'sys_bp', 'dia_bp', 'fio2', 'peep', 'tidal_volume', 'ph', 'pao2', 'paco2', 'lactate', 'creatinine']
+  [MODERATE] Significant outliers in: ['pao2', 'lactate']
+  [MODERATE] readmission has moderate class imbalance (ratio=0.136).
+
+------------------------------------------------------------
+MUST-FIX BEFORE TRAINING:
+------------------------------------------------------------
+  1. De-duplicate: decide the right grain (1 row per stay? per event?). Remove artificial duplicates.
+  2. Impute missing values (median / KNN for labs; carry-forward for vitals).
+  3. Cap / correct clinical range violations (esp. dia_bp, fio2, pH, lactate).
+  4. Encode gender (M=1, F=0 or one-hot).
+  5. Split data by patient (subject_id) to prevent intra-patient leakage.
+  6. Handle class imbalance (SMOTE, class weights, or stratified sampling).
+
+------------------------------------------------------------
+FINAL READINESS STATUS:
+------------------------------------------------------------
+  >>> NOT READY FOR ML TRAINING -- critical issues must be resolved first.
+
+================================================================================
