@@ -30,8 +30,9 @@ from scipy import stats
 
 from sklearn.model_selection import (
     GroupShuffleSplit, StratifiedKFold, cross_val_score,
-    GridSearchCV, RandomizedSearchCV
+    GridSearchCV, RandomizedSearchCV, GroupKFold
 )
+import joblib
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -523,8 +524,50 @@ for target in label_cols:
     improvement = auc - baseline_auc
     print("\n  Improvement over baseline XGBoost: {:+.4f} ROC-AUC".format(improvement))
 
+    # --- 5-Fold GroupKFold CV with Best Params ---
+    print("  Running 5-Fold GroupKFold CV to verify stability...")
+    gkf = GroupKFold(n_splits=5)
+    fold_aucs = []
+    fold_pr_aucs = []
+    
+    X_train_raw = df_train[feature_cols].values
+    groups_train = df_train['subject_id'].values
+    
+    for fold, (tr_idx, val_idx) in enumerate(gkf.split(X_train_raw, y_train, groups=groups_train)):
+        X_fold_tr, X_fold_val = X_train_raw[tr_idx], X_train_raw[val_idx]
+        y_fold_tr, y_fold_val = y_train[tr_idx], y_train[val_idx]
+        
+        cv_scaler = StandardScaler()
+        X_fold_tr_scaled = cv_scaler.fit_transform(X_fold_tr)
+        X_fold_val_scaled = cv_scaler.transform(X_fold_val)
+        
+        cv_model = xgb.XGBClassifier(**best_model.get_params())
+        cv_model.fit(X_fold_tr_scaled, y_fold_tr)
+        
+        fold_y_prob = cv_model.predict_proba(X_fold_val_scaled)[:, 1]
+        fold_aucs.append(roc_auc_score(y_fold_val, fold_y_prob))
+        fold_pr_aucs.append(average_precision_score(y_fold_val, fold_y_prob))
+        
+    mean_auc = np.mean(fold_aucs)
+    std_auc = np.std(fold_aucs)
+    mean_pr = np.mean(fold_pr_aucs)
+    std_pr = np.std(fold_pr_aucs)
+    
+    # Calculate 95% Confidence Intervals (approx mean +/- 1.96 * std / sqrt(n))
+    ci_auc = 1.96 * (std_auc / np.sqrt(5))
+    ci_pr = 1.96 * (std_pr / np.sqrt(5))
+    
+    print("  5-Fold CV ROC-AUC: {:.4f} (95% CI: {:.4f} - {:.4f})".format(mean_auc, mean_auc - ci_auc, mean_auc + ci_auc))
+    print("  5-Fold CV PR-AUC:  {:.4f} (95% CI: {:.4f} - {:.4f})".format(mean_pr, mean_pr - ci_pr, mean_pr + ci_pr))
+
+    # --- Save Best Model ---
+    model_path = os.path.join(OUT_DIR, f'best_xgb_{target}.pkl')
+    joblib.dump(best_model, model_path)
+    print("  -> Saved tuned model to:", model_path)
+
     best_models[target] = {
         'model': best_model, 'auc': auc, 'pr_auc': pr_auc,
+        'cv_auc_mean': mean_auc, 'cv_auc_std': std_auc,
         'params': search.best_params_,
         'y_pred': y_pred, 'y_prob': y_prob
     }
@@ -644,3 +687,61 @@ print("""
 print("=" * 75)
 print("  DONE!")
 print("=" * 75)
+
+# ==========================================================================
+#  STEP 8: EXTERNAL VALIDATION (eICU)
+# ==========================================================================
+section("STEP 8: EXTERNAL VALIDATION (eICU)")
+
+EICU_PATH = r"e:\fbi ML\eicu_data_cleaned.csv"
+
+if os.path.exists(EICU_PATH):
+    print("Found eICU dataset at:", EICU_PATH)
+    try:
+        df_eicu = pd.read_csv(EICU_PATH)
+        print("  eICU dataset: {} rows x {} columns".format(df_eicu.shape[0], df_eicu.shape[1]))
+        
+        # Ensure all feature columns are present
+        missing_cols = [c for c in feature_cols if c not in df_eicu.columns]
+        if missing_cols:
+            print("  [ERROR] eICU dataset is missing required features:", missing_cols)
+        else:
+            X_eicu = df_eicu[feature_cols].values
+            X_eicu_scaled = scaler.transform(X_eicu)  # Use original MIMIC-IV fitted scaler
+            
+            for target in label_cols:
+                if target in df_eicu.columns:
+                    print("\n  Evaluating {} on eICU External Cohort...".format(target.upper()))
+                    y_eicu = df_eicu[target].values
+                    
+                    bm = best_models[target]
+                    best_model = bm['model']
+                    threshold = 0.3 if target == 'readmission' else 0.5
+                    
+                    y_prob = best_model.predict_proba(X_eicu_scaled)[:, 1]
+                    y_pred = (y_prob >= threshold).astype(int)
+                    
+                    acc = accuracy_score(y_eicu, y_pred)
+                    prec = precision_score(y_eicu, y_pred, zero_division=0)
+                    rec = recall_score(y_eicu, y_pred, zero_division=0)
+                    f1 = f1_score(y_eicu, y_pred, zero_division=0)
+                    auc = roc_auc_score(y_eicu, y_prob)
+                    pr_auc = average_precision_score(y_eicu, y_prob)
+                    
+                    print("    External Accuracy:  {:.4f}".format(acc))
+                    print("    External Precision: {:.4f}".format(prec))
+                    print("    External Recall:    {:.4f}".format(rec))
+                    print("    External F1-Score:  {:.4f}".format(f1))
+                    print("    External ROC-AUC:   {:.4f}".format(auc))
+                    print("    External PR-AUC:    {:.4f}".format(pr_auc))
+                else:
+                    print(f"  [WARNING] Target '{target}' not found in eICU dataset. Skipping.")
+                    
+    except Exception as e:
+        print("  [ERROR] Failed to evaluate eICU data:", str(e))
+else:
+    print("No eICU dataset found at:", EICU_PATH)
+    print("\nTo perform external validation, please:")
+    print("  1. Extract eICU data with the exact 39 features used in this model.")
+    print("  2. Save it as 'eicu_data_cleaned.csv' in the project directory.")
+    print("  3. Run this pipeline again.")
